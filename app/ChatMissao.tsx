@@ -1,6 +1,7 @@
 import { auth, db } from '@/constants/firebaseConfig';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { arrayUnion, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -20,7 +21,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 export default function ChatMissao() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
-  const idDocMissao = id || "whatsapp_nivel_1"; 
+  const idDocMissao = id as string; 
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [missao, setMissao] = useState<any>(null);
@@ -34,7 +35,7 @@ export default function ChatMissao() {
   useEffect(() => {
     const buscarDados = async () => {
       try {
-        const docRef = doc(db, "cenarios", idDocMissao as string);
+        const docRef = doc(db, "cenarios", idDocMissao);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const dados = docSnap.data();
@@ -44,7 +45,11 @@ export default function ChatMissao() {
             exibirMensagensGradualmente(dados.mensagens);
           }
         }
-      } catch (error) { console.error(error); } finally { setLoading(false); }
+      } catch (error) { 
+        console.error("Erro ao buscar missão:", error); 
+      } finally { 
+        setLoading(false); 
+      }
     };
     buscarDados();
   }, [idDocMissao]);
@@ -75,7 +80,7 @@ export default function ChatMissao() {
         Alert.alert("✅ Excelente Agente!", opcao.explicacao, [
           { text: "Continuar", onPress: () => {
             setAguardandoBloqueio(true);
-            setMostrarDicaDenuncia(true); // Ativa a instrução para o usuário
+            setMostrarDicaDenuncia(true); 
           }}
         ]);
       } else {
@@ -91,7 +96,17 @@ export default function ChatMissao() {
     const user = auth.currentUser;
     if (!user) return;
     try {
-      await updateDoc(doc(db, "usuarios", user.uid), {
+      const userRef = doc(db, "usuarios", user.uid);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.data();
+      
+      if (userData?.missoes_concluidas?.includes(idDocMissao)) {
+        Alert.alert("Missão Concluída", "Você já concluiu este caso anteriormente!");
+        router.replace('/');
+        return;
+      }
+
+      await updateDoc(userRef, {
         xp: increment(100),
         missoes_concluidas: arrayUnion(idDocMissao)
       });
@@ -103,8 +118,11 @@ export default function ChatMissao() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.container} edges={['top']}>
-        {/* HEADER */}
+      {/* SafeAreaView configurada para respeitar o topo e a barra de navegação inferior do Android */}
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <StatusBar style="light" backgroundColor="#075E54" />
+        
+        {/* HEADER ESTILO WHATSAPP */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerLeft}>
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -125,12 +143,12 @@ export default function ChatMissao() {
           </View>
         </View>
 
-        {/* BALÃO DE DICA EDUCATIVA */}
+        {/* DICA DE DENÚNCIA */}
         {mostrarDicaDenuncia && (
           <View style={styles.containerDica}>
             <View style={styles.balaoDica}>
               <Text style={styles.textoDica}>
-                Agente, agora clique nos três pontinhos no topo e selecione "Denunciar e Bloquear" para encerrar o caso!
+                Agente, agora clique nos três pontinhos no topo e denuncie o contato para encerrar o caso!
               </Text>
               <TouchableOpacity onPress={() => setMostrarDicaDenuncia(false)} style={styles.btnEntendi}>
                 <Text style={styles.btnEntendiTexto}>ENTENDI</Text>
@@ -140,9 +158,16 @@ export default function ChatMissao() {
           </View>
         )}
 
-        {/* CHAT BACKGROUND */}
-        <ImageBackground source={{ uri: 'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png' }} style={styles.chatBackground}>
-          <ScrollView ref={scrollViewRef} onContentSizeChange={() => scrollViewRef.current?.scrollToEnd()} contentContainerStyle={{padding: 10, paddingBottom: 20}}>
+        {/* CONVERSA */}
+        <ImageBackground 
+          source={{ uri: 'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png' }} 
+          style={styles.chatBackground}
+        >
+          <ScrollView 
+            ref={scrollViewRef} 
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd()} 
+            contentContainerStyle={{padding: 10, paddingBottom: 20}}
+          >
             {mensagensVisiveis.map((msg, idx) => (
               <View key={idx} style={[styles.balaoContainer, msg.sender === 'suspeito' ? styles.esquerdaContainer : styles.direitaContainer]}>
                 <View style={[styles.balao, msg.sender === 'suspeito' ? styles.balaoEsquerda : styles.balaoDireita]}>
@@ -155,31 +180,42 @@ export default function ChatMissao() {
           </ScrollView>
         </ImageBackground>
 
-        {/* FOOTER / INPUT */}
+        {/* ÁREA DE INPUT / BOTÃO (AJUSTADA) */}
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.inputArea} onPress={() => setMostrarOpcoes(true)} disabled={aguardandoBloqueio}>
+          <TouchableOpacity 
+            style={styles.inputArea} 
+            onPress={() => setMostrarOpcoes(true)} 
+            disabled={aguardandoBloqueio}
+          >
             <Ionicons name="happy-outline" size={24} color="#85959f" />
-            <Text style={styles.inputText}>{aguardandoBloqueio ? "Missão pronta para finalizar" : "Escolher resposta..."}</Text>
-            <Ionicons name="attach" size={24} color="#85959f" />
+            <Text style={styles.inputText}>
+              {aguardandoBloqueio ? "Ação final pendente..." : "Escolher resposta..."}
+            </Text>
             <Ionicons name="camera" size={24} color="#85959f" />
           </TouchableOpacity>
+          <View style={styles.micCircle}>
+            <Ionicons name="mic" size={22} color="white" />
+          </View>
         </View>
 
-        {/* MODAL RESPOSTAS */}
+        {/* MODAIS (RESPOSTAS E MENU) */}
         <Modal visible={mostrarOpcoes} transparent animationType="slide">
-          <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
                <View style={styles.modalHeaderBar} />
-               <Text style={styles.modalTitulo}>Ação do Agente:</Text>
+               <Text style={styles.modalTitulo}>Como agir agora?</Text>
                {missao?.opcoes?.map((op: any, i: number) => (
                  <TouchableOpacity key={i} style={styles.opcaoBotao} onPress={() => escolherResposta(i)}>
                    <Text style={styles.opcaoTexto}>{op.texto}</Text>
                  </TouchableOpacity>
                ))}
-               <TouchableOpacity style={styles.btnCancelar} onPress={() => setMostrarOpcoes(false)}><Text style={styles.btnCancelarTexto}>Cancelar</Text></TouchableOpacity>
-          </View></View>
+               <TouchableOpacity style={styles.btnCancelar} onPress={() => setMostrarOpcoes(false)}>
+                 <Text style={styles.btnCancelarTexto}>Cancelar</Text>
+               </TouchableOpacity>
+            </View>
+          </View>
         </Modal>
 
-        {/* MODAL MENU 3 PONTINHOS */}
         <Modal visible={mostrarMenu} transparent animationType="fade">
           <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setMostrarMenu(false)}>
             <View style={styles.menuPopUp}>
@@ -187,13 +223,16 @@ export default function ChatMissao() {
                 style={styles.menuItem} 
                 onPress={() => { if(aguardandoBloqueio) { setMostrarMenu(false); finalizarMissao(); } }}
               >
-                <Text style={[styles.menuItemText, { color: aguardandoBloqueio ? '#ef4444' : '#ccc' }]}>Denunciar e Bloquear</Text>
+                <Text style={[styles.menuItemText, { color: aguardandoBloqueio ? '#ef4444' : '#ccc' }]}>
+                   Denunciar e Bloquear
+                </Text>
                 {!aguardandoBloqueio && <Ionicons name="lock-closed" size={16} color="#ccc" />}
               </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem}><Text style={styles.menuItemText}>Silenciar</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.menuItem}><Text style={styles.menuItemText}>Silenciar notificações</Text></TouchableOpacity>
             </View>
           </TouchableOpacity>
         </Modal>
+
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -202,9 +241,9 @@ export default function ChatMissao() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#075E54' },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  header: { backgroundColor: '#075E54', height: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
+  header: { backgroundColor: '#075E54', height: 65, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
-  avatarPlaceholder: { width: 35, height: 35, borderRadius: 20, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginLeft: 5 },
+  avatarPlaceholder: { width: 38, height: 38, borderRadius: 20, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginLeft: 5 },
   headerInfo: { flex: 1, marginLeft: 10 },
   headerNome: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   headerStatus: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
@@ -217,11 +256,15 @@ const styles = StyleSheet.create({
   balaoEsquerda: { backgroundColor: 'white', borderTopLeftRadius: 0 },
   balaoDireita: { backgroundColor: '#dcf8c6', borderTopRightRadius: 0 },
   textoBalao: { fontSize: 16, color: '#111' },
-  imagemChat: { width: 200, height: 200, borderRadius: 10, marginBottom: 5 },
+  imagemChat: { width: 220, height: 160, borderRadius: 10, marginBottom: 5, resizeMode: 'cover' },
   hora: { fontSize: 10, color: '#888', alignSelf: 'flex-end', marginTop: 2 },
-  footer: { flexDirection: 'row', padding: 8, alignItems: 'center', backgroundColor: '#efe7dd' },
-  inputArea: { flex: 1, backgroundColor: 'white', borderRadius: 25, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
+  
+  // FOOTER COM SAFE AREA AJUSTADO
+  footer: { flexDirection: 'row', padding: 8, paddingBottom: 12, alignItems: 'center', backgroundColor: 'transparent', position: 'absolute', bottom: 0, left: 0, right: 0 },
+  inputArea: { flex: 1, backgroundColor: 'white', borderRadius: 25, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, elevation: 2 },
   inputText: { flex: 1, color: '#85959f', marginHorizontal: 10, fontSize: 16 },
+  micCircle: { width: 48, height: 48, backgroundColor: '#075E54', borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginLeft: 5, elevation: 2 },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, paddingBottom: 40 },
   modalHeaderBar: { width: 40, height: 5, backgroundColor: '#ddd', borderRadius: 10, alignSelf: 'center', marginBottom: 20 },
@@ -230,15 +273,16 @@ const styles = StyleSheet.create({
   opcaoTexto: { fontSize: 16, fontWeight: '600', color: '#111', textAlign: 'center' },
   btnCancelar: { marginTop: 10, padding: 10 },
   btnCancelarTexto: { color: '#ef4444', textAlign: 'center', fontWeight: 'bold' },
+  
   menuOverlay: { flex: 1 },
-  menuPopUp: { position: 'absolute', top: 50, right: 10, backgroundColor: 'white', paddingVertical: 10, borderRadius: 8, width: 200, elevation: 5 },
-  menuItem: { paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between' },
-  menuItemText: { fontSize: 16 },
-  // ESTILOS DA DICA EDUCATIVA
-  containerDica: { position: 'absolute', top: 65, right: 10, zIndex: 9999, alignItems: 'flex-end' },
+  menuPopUp: { position: 'absolute', top: 50, right: 10, backgroundColor: 'white', paddingVertical: 10, borderRadius: 8, width: 220, elevation: 5 },
+  menuItem: { paddingHorizontal: 20, paddingVertical: 15, flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 0.5, borderBottomColor: '#eee' },
+  menuItemText: { fontSize: 15, color: '#333' },
+
+  containerDica: { position: 'absolute', top: 75, right: 15, zIndex: 9999, alignItems: 'flex-end' },
   balaoDica: { backgroundColor: '#2563eb', padding: 15, borderRadius: 12, width: 220, elevation: 10 },
-  textoDica: { color: 'white', fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
+  textoDica: { color: 'white', fontSize: 13, fontWeight: 'bold', textAlign: 'center', lineHeight: 18 },
   setaDica: { width: 0, height: 0, borderLeftWidth: 10, borderRightWidth: 10, borderBottomWidth: 15, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#2563eb', position: 'absolute', top: -10, right: 10 },
-  btnEntendi: { marginTop: 8, backgroundColor: 'white', padding: 5, borderRadius: 5 },
-  btnEntendiTexto: { color: '#2563eb', fontSize: 11, fontWeight: 'bold', textAlign: 'center' }
+  btnEntendi: { marginTop: 10, backgroundColor: 'white', padding: 6, borderRadius: 5 },
+  btnEntendiTexto: { color: '#2563eb', fontSize: 12, fontWeight: 'bold', textAlign: 'center' }
 });

@@ -1,10 +1,11 @@
 import { auth, db } from '@/constants/firebaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { doc, increment, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, increment, onSnapshot, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +16,7 @@ import {
 export default function HomeScreen() {
   const router = useRouter();
   const [userData, setUserData] = useState<any>(null);
+  const [missoes, setMissoes] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
   const XP_PARA_PROXIMO_NIVEL = 500;
@@ -25,35 +27,59 @@ export default function HomeScreen() {
 
     const userRef = doc(db, "usuarios", user.uid);
 
-    const unsubscribe = onSnapshot(userRef, async (docSnap) => {
+    // 1. ESCUTA DADOS DO USUÁRIO EM TEMPO REAL
+    const unsubUser = onSnapshot(userRef, async (docSnap) => {
       if (!docSnap.exists()) {
-        const novoPerfil = {
-          email: user.email,
-          xp: 0,
-          nivel: 1,
-          missoes_concluidas: [],
-          dataCriacao: new Date()
+        const novoPerfil = { 
+          email: user.email, 
+          xp: 0, 
+          nivel: 1, 
+          missoes_concluidas: [], 
+          dataCriacao: new Date() 
         };
         await setDoc(userRef, novoPerfil);
         setUserData(novoPerfil);
       } else {
         const data = docSnap.data();
         setUserData(data);
-
+        // Lógica de subir de nível
         if (data.xp >= XP_PARA_PROXIMO_NIVEL) {
-          await updateDoc(userRef, {
-            nivel: increment(1),
-            xp: data.xp - XP_PARA_PROXIMO_NIVEL
+          await updateDoc(userRef, { 
+            nivel: increment(1), 
+            xp: data.xp - XP_PARA_PROXIMO_NIVEL 
           });
         }
       }
+    });
+
+    // 2. ESCUTA A COLEÇÃO DE CENÁRIOS (DINÂMICO)
+    // Ele busca todos os documentos e ordena pelo campo 'ordem' que você criou
+    const q = query(collection(db, "cenarios"), orderBy("ordem", "asc"));
+    
+    const unsubMissoes = onSnapshot(q, (querySnapshot) => {
+      const lista: any[] = [];
+      querySnapshot.forEach((doc) => {
+        lista.push({ id: doc.id, ...doc.data() });
+      });
+      setMissoes(lista);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => { 
+      unsubUser(); 
+      unsubMissoes(); 
+    };
   }, []);
 
+  // Verifica se o ID da missão está na lista de concluídas do usuário
   const isConcluida = (id: string) => userData?.missoes_concluidas?.includes(id);
+
+  // Lógica de Bloqueio: Bloqueia se a missão anterior não estiver concluída
+  const estaBloqueada = (index: number) => {
+    if (index === 0) return false; // A primeira (ordem 1) nunca está bloqueada
+    const missaoAnteriorId = missoes[index - 1]?.id;
+    return !userData?.missoes_concluidas?.includes(missaoAnteriorId);
+  };
 
   if (loading) return (
     <View style={[styles.container, { justifyContent: 'center' }]}>
@@ -63,6 +89,7 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* HEADER DE STATUS DO AGENTE */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View>
@@ -91,45 +118,52 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Missões de Campo</Text>
+        <Text style={styles.sectionTitle}>Missões de Campo Ativas</Text>
         
-        <TouchableOpacity 
-          style={[styles.missionCard, isConcluida("whatsapp_nivel_1") && styles.cardConcluido]}
-          onPress={() => router.push({ pathname: '/ChatMissao', params: { id: 'whatsapp_nivel_1' } })} 
-        >
-          <View style={styles.missionIcon}>
-            <Ionicons name="logo-whatsapp" size={30} color={isConcluida("whatsapp_nivel_1") ? "#22c55e" : "#25D366"} />
-          </View>
-          <View style={styles.missionInfo}>
-            <Text style={styles.missionTitle}>Caso #1: O Novo Número</Text>
-            <Text style={styles.missionSubtitle}>
-              {isConcluida("whatsapp_nivel_1") ? "Status: CONCLUÍDA ✅" : "Status: Disponível 🔓"}
-            </Text>
-          </View>
-          <Ionicons name={isConcluida("whatsapp_nivel_1") ? "checkmark-circle" : "chevron-forward"} size={24} color={isConcluida("whatsapp_nivel_1") ? "#22c55e" : "#94a3b8"} />
-        </TouchableOpacity>
+        {/* MAPEIA AS MISSÕES DO FIREBASE AUTOMATICAMENTE */}
+        {missoes.map((item, index) => {
+          const concluida = isConcluida(item.id);
+          const bloqueada = estaBloqueada(index);
 
-        <TouchableOpacity 
-          style={[styles.missionCard, !isConcluida("whatsapp_nivel_1") && styles.cardBloqueado]}
-          onPress={() => {
-            if (isConcluida("whatsapp_nivel_1")) {
-               router.push({ pathname: '/ChatMissao', params: { id: 'whatsapp_nivel_2' } });
-            } else {
-              alert("Missão Bloqueada! Complete o Caso #1 primeiro.");
-            }
-          }} 
-        >
-          <View style={styles.missionIcon}>
-            <Ionicons name="logo-whatsapp" size={30} color="#64748b" />
-          </View>
-          <View style={styles.missionInfo}>
-            <Text style={[styles.missionTitle, !isConcluida("whatsapp_nivel_1") && { color: '#64748b' }]}>Caso #2: O Golpe do Pix</Text>
-            <Text style={styles.missionSubtitle}>
-              {!isConcluida("whatsapp_nivel_1") ? "Requer Caso #1 concluído" : "Status: Disponível 🔓"}
-            </Text>
-          </View>
-          {!isConcluida("whatsapp_nivel_1") && <Ionicons name="lock-closed" size={20} color="#ef4444" />}
-        </TouchableOpacity>
+          return (
+            <TouchableOpacity 
+              key={item.id}
+              style={[
+                styles.missionCard, 
+                concluida && styles.cardConcluido,
+                bloqueada && styles.cardBloqueado
+              ]}
+              onPress={() => {
+                if (bloqueada) {
+                  Alert.alert("Acesso Negado", "Complete a missão anterior para desbloquear este caso.");
+                } else {
+                  router.push({ pathname: '/ChatMissao', params: { id: item.id } });
+                }
+              }} 
+            >
+              <View style={styles.missionIcon}>
+                <Ionicons 
+                  name="logo-whatsapp" 
+                  size={30} 
+                  color={concluida ? "#22c55e" : bloqueada ? "#64748b" : "#25D366"} 
+                />
+              </View>
+              <View style={styles.missionInfo}>
+                <Text style={[styles.missionTitle, bloqueada && { color: '#64748b' }]}>
+                  {item.titulo || `Caso #${index + 1}`}
+                </Text>
+                <Text style={styles.missionSubtitle}>
+                  {concluida ? "CONCLUÍDA ✅" : bloqueada ? "Bloqueada 🔒" : "Disponível 🔓"}
+                </Text>
+              </View>
+              <Ionicons 
+                name={concluida ? "checkmark-circle" : bloqueada ? "lock-closed" : "chevron-forward"} 
+                size={24} 
+                color={concluida ? "#22c55e" : "#94a3b8"} 
+              />
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -149,8 +183,8 @@ const styles = StyleSheet.create({
   xpInfoRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   xpLabel: { color: '#64748b', fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
   xpProgressText: { color: '#eab308', fontSize: 11, fontWeight: 'bold' },
-  content: { alignItems: 'center', paddingBottom: 30 },
-  sectionTitle: { color: '#fff', fontSize: 18, marginBottom: 15, alignSelf: 'flex-start', fontWeight: 'bold' },
+  content: { width: '100%', paddingBottom: 30 },
+  sectionTitle: { color: '#fff', fontSize: 18, marginBottom: 15, fontWeight: 'bold' },
   missionCard: { backgroundColor: '#1e293b', width: '100%', padding: 18, borderRadius: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#334155', marginBottom: 12 },
   cardConcluido: { borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.05)' },
   cardBloqueado: { opacity: 0.5, borderColor: '#1e293b' },
